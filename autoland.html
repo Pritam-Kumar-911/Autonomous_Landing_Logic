@@ -1,0 +1,566 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AutoLand - Glider Landing Simulator</title>
+<style>
+:root{
+  --bg:#f4f6f9; --card:#ffffff; --ink:#14181f; --muted:#596473; --line:#dde2e9;
+  --accent:#1f6feb; --pass:#1a7f37; --fail:#cf222e; --warn:#9a6700; --flare:#cf222e;
+  --sky1:#cfe3fb; --sky2:#eef6ff; --ground:#6fa56b; --zone:rgba(26,127,55,.16);
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#0e1217; --card:#161b22; --ink:#e8ecf1; --muted:#9aa4b2; --line:#2a323d;
+    --accent:#58a6ff; --pass:#3fb950; --fail:#f85149; --warn:#d29922; --flare:#f85149;
+    --sky1:#13233b; --sky2:#0e1a2c; --ground:#2f5d37; --zone:rgba(63,185,80,.18);
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:1040px;margin:0 auto;padding:20px 16px 48px}
+h1{font-size:26px;margin:0 0 4px}
+h2{font-size:18px;margin:0 0 10px}
+p{margin:0 0 10px}
+.sub{color:var(--muted);margin-bottom:18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+canvas{display:block;width:100%;height:auto;aspect-ratio:2.6/1;border-radius:8px;border:1px solid var(--line)}
+.stats{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;margin:12px 0}
+.stats3{grid-template-columns:repeat(3,1fr)}
+.stat{background:var(--bg);border-radius:8px;padding:8px 10px}
+.stat b{display:block;font-size:18px;font-variant-numeric:tabular-nums}
+.stat span{color:var(--muted);font-size:12px}
+.controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px 20px;margin-top:6px}
+.controls label{display:block;font-size:13px;color:var(--muted)}
+.controls label output{color:var(--ink);font-weight:600;float:right}
+.controls input[type=range]{width:100%}
+.controls select{width:100%;padding:6px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
+.row{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;align-items:center}
+button{font:inherit;padding:9px 16px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+button:disabled{opacity:.5;cursor:default}
+.hint{color:var(--muted);font-size:13px}
+.result{margin-top:12px;padding:12px 14px;border-radius:8px;border:2px solid var(--line);display:none;font-weight:600}
+.result.pass{border-color:var(--pass);color:var(--pass);display:block}
+.result.fail{border-color:var(--fail);color:var(--fail);display:block}
+.hidden{display:none}
+details{margin-top:12px}
+summary{cursor:pointer;color:var(--accent)}
+.tablewrap{max-height:320px;overflow:auto;margin-top:8px;border:1px solid var(--line);border-radius:8px}
+table{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums}
+th,td{padding:6px 10px;text-align:right;border-bottom:1px solid var(--line)}
+th{position:sticky;top:0;background:var(--card)}
+td.p{color:var(--pass);font-weight:600}
+td.f{color:var(--fail);font-weight:600}
+.three{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.three div{background:var(--bg);border-radius:8px;padding:12px}
+.three b{display:block;margin-bottom:4px}
+@media (max-width:640px){
+  .stats{grid-template-columns:repeat(2,1fr)}
+  .stats3{grid-template-columns:repeat(3,1fr)}
+  canvas{aspect-ratio:1.5/1}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>AutoLand</h1>
+  <p class="sub">An autonomous landing system for an unpowered glider. Change the conditions, launch a flight, and watch the landing logic decide on its own.</p>
+
+  <section class="card">
+    <h2>1. Live flight</h2>
+    <canvas id="cFlight" aria-label="Glider flight path"></canvas>
+    <div class="stats">
+      <div class="stat"><span>Stage</span><b id="sStage">READY</b></div>
+      <div class="stat"><span>Height (m)</span><b id="sH">-</b></div>
+      <div class="stat"><span>Distance (m)</span><b id="sX">-</b></div>
+      <div class="stat"><span>Sink speed (m/s)</span><b id="sSink">-</b></div>
+      <div class="stat"><span>Ground speed (m/s)</span><b id="sGs">-</b></div>
+    </div>
+    <div class="controls">
+      <label>Start height <output id="oHeight"></output><input id="height" type="range" min="80" max="150" step="1" value="120"></label>
+      <label>Start distance from launch line <output id="oX0"></output><input id="x0" type="range" min="0" max="200" step="5" value="0"></label>
+      <label>Steady wind (+ tailwind, - headwind) <output id="oWind"></output><input id="wind" type="range" min="-6" max="6" step="0.5" value="0"></label>
+      <label>Gust strength <output id="oGust"></output><input id="gust" type="range" min="0" max="12" step="0.5" value="2"></label>
+      <label>Playback speed
+        <select id="speed"><option value="1">Slow</option><option value="2" selected>Normal</option><option value="6">Fast</option></select>
+      </label>
+    </div>
+    <div class="row">
+      <button id="launch" class="primary">Launch flight</button>
+      <button id="reset">Reset</button>
+      <span class="hint">Tip: you can move the wind and gust sliders while the glider is flying.</span>
+    </div>
+    <div id="result" class="result" role="status" aria-live="polite"></div>
+  </section>
+
+  <section class="card">
+    <h2>2. Test 50 random flights</h2>
+    <p>Each flight gets a random start height (80 to 150 m), start position (0 to 200 m) and steady wind (up to 4 m/s either way). Gusts use the Gust slider above. The random seed is fixed, so the result repeats every time.</p>
+    <div class="row" style="margin-top:0"><button id="run50" class="primary">Run 50 flights</button><span class="hint" id="batchNote"></span></div>
+    <div id="batchOut" class="hidden">
+      <div class="stats stats3">
+        <div class="stat"><span>Success rate</span><b id="bRate">-</b></div>
+        <div class="stat"><span>Average miss</span><b id="bMiss">-</b></div>
+        <div class="stat"><span>Average touchdown sink</span><b id="bSink">-</b></div>
+      </div>
+      <canvas id="cBatch" aria-label="All 50 flight paths"></canvas>
+      <details>
+        <summary>Show all 50 flights</summary>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>Run</th><th>Start dist (m)</th><th>Start height (m)</th><th>Wind (m/s)</th><th>Miss (m)</th><th>Touchdown sink (m/s)</th><th>Result</th></tr></thead>
+            <tbody id="tbody"></tbody>
+          </table>
+        </div>
+      </details>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>3. Where does it break?</h2>
+    <p>The same 50 flights, repeated with stronger and stronger gusts, to find the limit of the landing logic.</p>
+    <div class="row" style="margin-top:0"><button id="runSweep" class="primary">Run gust test</button></div>
+    <div id="sweepOut" class="hidden">
+      <canvas id="cSweep" aria-label="Success rate for each gust strength" style="margin-top:12px"></canvas>
+      <p id="sweepText" style="margin-top:10px"></p>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>How the landing logic works</h2>
+    <div class="three">
+      <div><b>1. Approach</b>Every 0.1 s the glider measures its ground speed and works out how fast it must sink to reach flare height just before the aim point. The aim point is placed before the target because the flare uses up distance.</div>
+      <div><b>2. Flare</b>Below 8 m the sink speed shrinks with height (height divided by 2), so the glider settles gently instead of dropping onto the ground.</div>
+      <div><b>3. Touchdown and score</b>A flight passes if it lands within 30 m of the target and touches down slower than 0.5 m/s.</div>
+    </div>
+    <p class="hint" style="margin-top:12px">Limits: this is a simplified 2D simulation with perfect sensors, so results show the logic works under ideal measurements, not on a real glider. Height is stretched on screen so the descent is visible. Ground speed never drops below 3 m/s.</p>
+  </section>
+</div>
+
+<script>
+// ==SIM_START==
+const CFG = {
+  forward: 15, target: 1000, dt: 0.1, minGround: 3,
+  minSink: 0.3, maxSink: 5, flareH: 8, flareTau: 2, flareMin: 0.2, flareTime: 8,
+  maxMiss: 30, maxTouchSink: 0.5
+};
+
+function makeRng(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function createFlight(x0, h0, wind, gust, rng) {
+  return { x: x0, h: h0, wind: wind, gust: gust, rng: rng, stage: 'APPROACH', sink: 0, gs: CFG.forward + wind, aim: 0, t: 0, done: false };
+}
+
+function stepFlight(f) {
+  if (f.done) return;
+  // ground speed = glider speed + steady wind + a random gust
+  let gs = CFG.forward + f.wind + (f.rng() * 2 - 1) * f.gust;
+  if (gs < CFG.minGround) gs = CFG.minGround;
+
+  if (f.h <= CFG.flareH) f.stage = 'FLARE';
+
+  let sink;
+  if (f.stage === 'APPROACH') {
+    // aim before the target, because the flare uses up distance
+    const aim = CFG.target - gs * CFG.flareTime;
+    let left = aim - f.x;
+    if (left < 1) left = 1;
+    const timeLeft = left / gs;
+    sink = (f.h - CFG.flareH) / timeLeft;
+    sink = Math.min(CFG.maxSink, Math.max(CFG.minSink, sink));
+    f.aim = aim;
+  } else {
+    // flare: the lower we are, the slower we sink
+    sink = Math.max(f.h / CFG.flareTau, CFG.flareMin);
+  }
+
+  f.x += gs * CFG.dt;
+  f.h -= sink * CFG.dt;
+  f.sink = sink;
+  f.gs = gs;
+  f.t += CFG.dt;
+  if (f.h <= 0) { f.h = 0; f.done = true; }
+}
+
+function judge(f) {
+  const miss = f.x - CFG.target;
+  return { miss: miss, sink: f.sink, pass: Math.abs(miss) <= CFG.maxMiss && f.sink <= CFG.maxTouchSink };
+}
+
+function runFlight(x0, h0, wind, gust, rng, keepPath) {
+  const f = createFlight(x0, h0, wind, gust, rng);
+  const xs = [x0], hs = [h0];
+  let n = 0;
+  while (!f.done && n < 5000) {
+    stepFlight(f);
+    if (keepPath && n % 4 === 0) { xs.push(f.x); hs.push(f.h); }
+    n++;
+  }
+  if (keepPath) { xs.push(f.x); hs.push(0); }
+  const j = judge(f);
+  return { x0: x0, h0: h0, wind: wind, miss: j.miss, sink: j.sink, pass: j.pass, xs: xs, hs: hs };
+}
+
+function runBatch(runs, gust, seed, maxWind, keepPath) {
+  const rng = makeRng(seed);
+  const out = [];
+  for (let i = 1; i <= runs; i++) {
+    const x0 = rng() * 200;
+    const h0 = 80 + rng() * 70;
+    const wind = (rng() * 2 - 1) * maxWind;
+    const r = runFlight(x0, h0, wind, gust, rng, keepPath);
+    r.n = i;
+    out.push(r);
+  }
+  return out;
+}
+// ==SIM_END==
+
+// ---------- Drawing helpers ----------
+const $ = function (id) { return document.getElementById(id); };
+const css = function (n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); };
+const XMAX = 1100, YMAX = 160;
+
+function prep(c) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = c.clientWidth, h = c.clientHeight;
+  c.width = Math.round(w * dpr);
+  c.height = Math.round(h * dpr);
+  const ctx = c.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx: ctx, w: w, h: h };
+}
+
+function mapper(w, h) {
+  const L = 44, R = 16, T = 16, B = 42;
+  return {
+    L: L, R: R, T: T, B: B,
+    X: function (x) { return L + (x / XMAX) * (w - L - R); },
+    Y: function (y) { return h - B - (y / YMAX) * (h - T - B); }
+  };
+}
+
+function drawScene(ctx, w, h) {
+  const m = mapper(w, h);
+  ctx.clearRect(0, 0, w, h);
+  const g = ctx.createLinearGradient(0, m.T, 0, m.Y(0));
+  g.addColorStop(0, css('--sky1'));
+  g.addColorStop(1, css('--sky2'));
+  ctx.fillStyle = g;
+  ctx.fillRect(m.L, m.T, w - m.L - m.R, m.Y(0) - m.T);
+  ctx.fillStyle = css('--ground');
+  ctx.fillRect(m.L, m.Y(0), w - m.L - m.R, 6);
+
+  // landing zone
+  ctx.fillStyle = css('--zone');
+  const zx0 = m.X(CFG.target - CFG.maxMiss), zx1 = m.X(CFG.target + CFG.maxMiss);
+  ctx.fillRect(zx0, m.T, zx1 - zx0, m.Y(0) - m.T);
+
+  // grid and labels
+  ctx.font = '11px system-ui, sans-serif';
+  ctx.fillStyle = css('--muted');
+  ctx.strokeStyle = css('--line');
+  ctx.lineWidth = 1;
+  ctx.textAlign = 'center';
+  for (let x = 0; x <= 1000; x += 200) {
+    const px = m.X(x);
+    ctx.beginPath(); ctx.moveTo(px, m.T); ctx.lineTo(px, m.Y(0)); ctx.stroke();
+    ctx.fillText(String(x), px, m.Y(0) + 18);
+  }
+  ctx.textAlign = 'right';
+  for (let y = 0; y <= 160; y += 40) {
+    const py = m.Y(y);
+    ctx.beginPath(); ctx.moveTo(m.L, py); ctx.lineTo(w - m.R, py); ctx.stroke();
+    ctx.fillText(String(y), m.L - 6, py + 4);
+  }
+
+  // target line
+  ctx.strokeStyle = css('--pass');
+  ctx.lineWidth = 2;
+  ctx.setLineDash([6, 4]);
+  ctx.beginPath(); ctx.moveTo(m.X(CFG.target), m.T); ctx.lineTo(m.X(CFG.target), m.Y(0)); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = css('--pass');
+  ctx.textAlign = 'right';
+  ctx.fillText('target (+/- 30 m zone)', m.X(CFG.target) - 6, m.T + 12);
+
+  ctx.fillStyle = css('--muted');
+  ctx.textAlign = 'center';
+  ctx.fillText('Distance (m)', (m.L + w - m.R) / 2, h - 5);
+  ctx.textAlign = 'left';
+  ctx.fillText('Height (m, stretched)', m.L + 4, m.T + 12);
+  return m;
+}
+
+function drawGlider(ctx, m, x, h) {
+  const px = m.X(x), py = m.Y(h);
+  ctx.fillStyle = css('--ink');
+  ctx.beginPath(); ctx.arc(px, py, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = css('--accent');
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(px, py, 9, 0, Math.PI * 2); ctx.stroke();
+}
+
+// ---------- Live flight ----------
+let flight = null, trail = [], running = false, raf = null;
+
+function drawFlightView() {
+  const p = prep($('cFlight'));
+  const ctx = p.ctx;
+  const m = drawScene(ctx, p.w, p.h);
+  const f = flight;
+
+  if (f && running && f.stage === 'APPROACH' && f.aim > 0 && f.aim < XMAX) {
+    ctx.strokeStyle = css('--accent');
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 4]);
+    ctx.beginPath(); ctx.moveTo(m.X(f.aim), m.T); ctx.lineTo(m.X(f.aim), m.Y(0)); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = css('--accent');
+    ctx.textAlign = 'center';
+    ctx.fillText('aim point', m.X(f.aim), m.T + 12);
+  }
+
+  for (let i = 1; i < trail.length; i++) {
+    const flare = trail[i].s === 'FLARE';
+    ctx.strokeStyle = flare ? css('--flare') : css('--accent');
+    ctx.lineWidth = flare ? 4 : 2;
+    ctx.beginPath();
+    ctx.moveTo(m.X(trail[i - 1].x), m.Y(trail[i - 1].h));
+    ctx.lineTo(m.X(trail[i].x), m.Y(trail[i].h));
+    ctx.stroke();
+  }
+
+  const gx = f ? f.x : +$('x0').value;
+  const gh = f ? f.h : +$('height').value;
+  drawGlider(ctx, m, gx, gh);
+}
+
+function updateStats() {
+  const f = flight;
+  if (!f) {
+    $('sStage').textContent = 'READY';
+    $('sH').textContent = $('height').value;
+    $('sX').textContent = $('x0').value;
+    $('sSink').textContent = '-';
+    $('sGs').textContent = '-';
+    return;
+  }
+  $('sStage').textContent = f.done ? 'LANDED' : f.stage;
+  $('sH').textContent = f.h.toFixed(1);
+  $('sX').textContent = f.x.toFixed(0);
+  $('sSink').textContent = f.sink.toFixed(2);
+  $('sGs').textContent = f.gs.toFixed(1);
+}
+
+function showResult() {
+  const j = judge(flight);
+  const box = $('result');
+  const away = Math.abs(j.miss).toFixed(1) + ' m ' + (j.miss < 0 ? 'short of' : 'past') + ' the target';
+  box.className = 'result ' + (j.pass ? 'pass' : 'fail');
+  box.textContent = (j.pass ? 'PASS: ' : 'FAIL: ') + 'landed ' + away + ', touchdown speed ' + j.sink.toFixed(2) + ' m/s (needs within 30 m and below 0.5 m/s).';
+}
+
+function hideResult() {
+  $('result').className = 'result';
+  $('result').textContent = '';
+}
+
+function frame() {
+  if (!running) return;
+  flight.wind = +$('wind').value;
+  flight.gust = +$('gust').value;
+  const n = +$('speed').value;
+  for (let i = 0; i < n && !flight.done; i++) {
+    stepFlight(flight);
+    trail.push({ x: flight.x, h: flight.h, s: flight.stage });
+  }
+  drawFlightView();
+  updateStats();
+  if (flight.done) {
+    running = false;
+    $('launch').disabled = false;
+    showResult();
+  } else {
+    raf = requestAnimationFrame(frame);
+  }
+}
+
+function launch() {
+  if (running) return;
+  const x0 = +$('x0').value, h0 = +$('height').value;
+  flight = createFlight(x0, h0, +$('wind').value, +$('gust').value, makeRng((Math.random() * 4294967296) >>> 0));
+  trail = [{ x: x0, h: h0, s: 'APPROACH' }];
+  hideResult();
+  running = true;
+  $('launch').disabled = true;
+  raf = requestAnimationFrame(frame);
+}
+
+function resetView() {
+  running = false;
+  if (raf) cancelAnimationFrame(raf);
+  $('launch').disabled = false;
+  flight = null;
+  trail = [];
+  hideResult();
+  updateStats();
+  drawFlightView();
+}
+
+// ---------- 50 random flights ----------
+let lastBatch = null, lastSweep = null;
+
+function drawBatch() {
+  if (!lastBatch) return;
+  const p = prep($('cBatch'));
+  const ctx = p.ctx;
+  const m = drawScene(ctx, p.w, p.h);
+  ctx.lineWidth = 1.5;
+  ctx.globalAlpha = 0.55;
+  lastBatch.forEach(function (r) {
+    ctx.strokeStyle = r.pass ? css('--accent') : css('--fail');
+    ctx.beginPath();
+    r.xs.forEach(function (x, i) {
+      const px = m.X(x), py = m.Y(r.hs[i]);
+      if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py);
+    });
+    ctx.stroke();
+  });
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = 3;
+  ctx.textAlign = 'left';
+  ctx.strokeStyle = css('--accent'); ctx.beginPath(); ctx.moveTo(m.L + 6, m.T + 28); ctx.lineTo(m.L + 26, m.T + 28); ctx.stroke();
+  ctx.fillStyle = css('--muted'); ctx.fillText('pass', m.L + 32, m.T + 32);
+  ctx.strokeStyle = css('--fail'); ctx.beginPath(); ctx.moveTo(m.L + 76, m.T + 28); ctx.lineTo(m.L + 96, m.T + 28); ctx.stroke();
+  ctx.fillStyle = css('--muted'); ctx.fillText('fail', m.L + 102, m.T + 32);
+}
+
+function run50() {
+  const gust = +$('gust').value;
+  lastBatch = runBatch(50, gust, 42, 4, true);
+  const passed = lastBatch.filter(function (r) { return r.pass; }).length;
+  const avgMiss = lastBatch.reduce(function (a, r) { return a + Math.abs(r.miss); }, 0) / 50;
+  const avgSink = lastBatch.reduce(function (a, r) { return a + r.sink; }, 0) / 50;
+  $('bRate').textContent = passed + ' of 50 (' + Math.round(passed * 2) + '%)';
+  $('bMiss').textContent = avgMiss.toFixed(1) + ' m';
+  $('bSink').textContent = avgSink.toFixed(2) + ' m/s';
+  $('batchNote').textContent = 'Gust strength used: ' + gust + ' m/s';
+
+  const tb = $('tbody');
+  tb.textContent = '';
+  lastBatch.forEach(function (r) {
+    const tr = document.createElement('tr');
+    const cells = [r.n, r.x0.toFixed(0), r.h0.toFixed(0), r.wind.toFixed(1), r.miss.toFixed(1), r.sink.toFixed(2), r.pass ? 'PASS' : 'FAIL'];
+    cells.forEach(function (c, i) {
+      const td = document.createElement('td');
+      td.textContent = c;
+      if (i === 6) td.className = r.pass ? 'p' : 'f';
+      tr.appendChild(td);
+    });
+    tb.appendChild(tr);
+  });
+  $('batchOut').classList.remove('hidden');
+  drawBatch();
+}
+
+// ---------- Gust sweep ----------
+function drawSweep() {
+  if (!lastSweep) return;
+  const p = prep($('cSweep'));
+  const ctx = p.ctx, w = p.w, h = p.h;
+  const L = 44, R = 16, T = 20, B = 40;
+  ctx.clearRect(0, 0, w, h);
+  ctx.font = '11px system-ui, sans-serif';
+  ctx.strokeStyle = css('--line');
+  ctx.fillStyle = css('--muted');
+  ctx.lineWidth = 1;
+  ctx.textAlign = 'right';
+  for (let v = 0; v <= 100; v += 25) {
+    const y = h - B - (v / 100) * (h - T - B);
+    ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(w - R, y); ctx.stroke();
+    ctx.fillText(v + '%', L - 6, y + 4);
+  }
+  const n = lastSweep.length;
+  const slot = (w - L - R) / n;
+  const bw = Math.min(60, slot * 0.6);
+  lastSweep.forEach(function (s, i) {
+    const pct = s.p * 2;
+    const x = L + slot * i + (slot - bw) / 2;
+    const bh = (pct / 100) * (h - T - B);
+    ctx.fillStyle = pct >= 95 ? css('--pass') : (pct >= 60 ? css('--warn') : css('--fail'));
+    ctx.fillRect(x, h - B - bh, bw, bh);
+    ctx.fillStyle = css('--ink');
+    ctx.textAlign = 'center';
+    ctx.fillText(pct + '%', x + bw / 2, h - B - bh - 5);
+    ctx.fillStyle = css('--muted');
+    ctx.fillText(String(s.g), x + bw / 2, h - B + 16);
+  });
+  ctx.fillStyle = css('--muted');
+  ctx.textAlign = 'center';
+  ctx.fillText('Gust strength (m/s)', (L + w - R) / 2, h - 6);
+}
+
+function runSweep() {
+  const gusts = [0, 2, 4, 6, 8, 10, 12];
+  lastSweep = gusts.map(function (g) {
+    const r = runBatch(50, g, 42, 4, false);
+    return { g: g, p: r.filter(function (x) { return x.pass; }).length };
+  });
+  let limit = null;
+  for (let i = 0; i < lastSweep.length; i++) {
+    if (lastSweep[i].p / 50 >= 0.95) limit = lastSweep[i].g; else break;
+  }
+  const last = lastSweep[lastSweep.length - 1];
+  $('sweepText').textContent =
+    (limit === null ? 'Success stays below 95% even in calm air.' : 'Success stays at or above 95% up to a gust of ' + limit + ' m/s.') +
+    ' At a gust of ' + last.g + ' m/s it passes ' + (last.p * 2) + '% of flights. Strong gusts change the glider\'s speed during the flare, so the aim point is no longer accurate.';
+  $('sweepOut').classList.remove('hidden');
+  drawSweep();
+}
+
+// ---------- Wiring ----------
+function updateOutputs() {
+  $('oHeight').textContent = $('height').value + ' m';
+  $('oX0').textContent = $('x0').value + ' m';
+  const w = +$('wind').value;
+  $('oWind').textContent = (w > 0 ? '+' : '') + w + ' m/s';
+  $('oGust').textContent = $('gust').value + ' m/s';
+}
+
+['height', 'x0'].forEach(function (id) {
+  $(id).addEventListener('input', function () {
+    updateOutputs();
+    if (!running) resetView();
+  });
+});
+['wind', 'gust'].forEach(function (id) {
+  $(id).addEventListener('input', updateOutputs);
+});
+$('launch').addEventListener('click', launch);
+$('reset').addEventListener('click', resetView);
+$('run50').addEventListener('click', run50);
+$('runSweep').addEventListener('click', runSweep);
+
+function redrawAll() { drawFlightView(); drawBatch(); drawSweep(); }
+window.addEventListener('resize', redrawAll);
+if (window.matchMedia) {
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', redrawAll);
+}
+
+updateOutputs();
+updateStats();
+drawFlightView();
+</script>
+</body>
+</html>
